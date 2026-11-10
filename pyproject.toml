@@ -1,0 +1,22 @@
+[project]
+name = "rpg-trajectory-evaluation-dev"
+version = "0.0.0"
+description = "Development environment for the rpg_trajectory_evaluation toolbox"
+requires-python = ">=3.10"
+dependencies = ["rpg-trajectory-evaluation"]
+
+[dependency-groups]
+dev = ["pytest>=7"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+rpg-trajectory-evaluation = { path = "ros2_ws/src/rpg_trajectory_evaluation", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["ros2_ws/src/rpg_trajectory_evaluation/test"]
+# ROS 2 ships pytest plugins (launch_testing, ament_*) that are not needed by
+# this package and may fail to import in a plain uv virtual environment when
+# the ROS 2 environment is on PYTHONPATH.
+addopts = "-ra -p no:launch_testing -p no:launch_ros -p no:ament_copyright -p no:ament_flake8 -p no:ament_lint -p no:ament_pep257 -p no:ament_xmllint"

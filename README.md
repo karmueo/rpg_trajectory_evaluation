@@ -40,17 +40,33 @@ Zichao Zhang, Davide Scaramuzza: A Tutorial on Quantitative Trajectory Evaluatio
 6. [Credits](#credits)
 
 ## Install
-The package is written in python and tested in Ubuntu 16.04 and 18.04.
-Currently only `python2` is supported.
-The package can be used as a ROS package as well as a standalone tool.
-To use it as a ROS package, simply clone it into your workspace.
-It only depends on [`catkin_simple`](https://github.com/catkin/catkin_simple) to build.
+The toolbox is written in Python 3 and tested with Ubuntu 24.04 and ROS 2 Jazzy.
+It can be used as a ROS 2 package as well as a standalone Python tool.
 
-**Dependencies**: You will need install the following:
+**ROS 2 package**: the package source lives in `ros2_ws/src/rpg_trajectory_evaluation`.
+Build it with `colcon` from the `ros2_ws` workspace; all build, install and log output is written under `ros2_ws/`:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd ros2_ws
+colcon build --symlink-install
+source install/setup.bash
+```
+
+**Standalone Python environment**: a virtual environment is created in the repository root with `uv`:
+
+```bash
+uv sync
+source .venv/bin/activate   # optional, `uv run ...` works as well
+```
+
+**Dependencies**:
 
 * `numpy` and `matplotlib` for the analysis/plotting
 * `colorama` for colored console output
-* `ruamel.yaml` ([install](https://pypi.org/project/ruamel.yaml/)) for [preserving the order in yaml configurations](https://stackoverflow.com/questions/5121931/in-python-how-can-you-load-yaml-mappings-as-ordereddicts)
+* `PyYAML` for reading the YAML configurations
+* optional: a LaTeX installation (`latex`, `dvipng`) for LaTeX-rendered plots; without it matplotlib's mathtext is used automatically
+* ROS 2 (`rclpy`, `rosbag2_py`, `rosidl_runtime_py`, `geometry_msgs`) only for the `bag_to_pose` dataset tool; install with `rosdep install --from-paths ros2_ws/src --ignore-src -r -y`
 
 ## Prepare the Data
 Each trajectory estimate (e.g., output of a visual-inertial odometry algorithm) to evaluate is organized as a self-contained folder.
@@ -78,7 +94,7 @@ The groundtruth (`stamped_groundtruth.txt`) and estimated poses (`stamped_traj_e
 Note that the file is space separated, and the quaternion has the `w` component at the end.
 The timestamps are in the unit of second and used to establish temporal correspondences.
 
-There are some scripts under `scripts/dataset_tools` to help you convert your data format (EuRoC style, ROS bag) to the above format.
+There are dataset conversion tools under `rpg_trajectory_evaluation/cli/dataset_tools` to help you convert your data format (EuRoC style, ROS 2 bag) to the above format.
 See the corresponding section below for details.
 
 #### Evaluation parameters
@@ -106,33 +122,53 @@ We can run the evaluation on a single estimate result or for multiple algorithms
 
 ### Single trajectory estimate
 
-As a ROS package, run
+As a ROS 2 package, run
 
 ```
-rosrun rpg_trajectory_evaluation analyze_trajectory_single.py <result_folder>
+ros2 run rpg_trajectory_evaluation analyze_trajectory_single <input> [comparison]
 ```
 
-or as a standalone package, run
+or with the uv environment, run
 
 ```
-python2 analyze_trajectory_single.py <result_folder> 
+uv run analyze_trajectory_single <input> [comparison]
 ```
+
+The input can be a result folder or an explicit groundtruth trajectory file:
+
+```bash
+# Result folder: groundtruth and comparison trajectories are detected automatically.
+uv run analyze_trajectory_single <result_folder>
+
+# Result folder + explicit comparison trajectory.
+uv run analyze_trajectory_single <result_folder> <comparison.txt>
+
+# Explicit groundtruth and comparison trajectories.
+uv run analyze_trajectory_single <groundtruth.txt> <comparison.txt>
+```
+
+When the first argument is a folder, `.txt` files directly inside it that have at least eight numeric columns are treated as trajectories. A filename containing `groundtruth`, `ground_truth` or a standalone `gt` token (for example `gt.txt`, `GT.txt` or `stamped_gt.txt`) is treated as the groundtruth candidate; another trajectory is used as the comparison. If more than one choice is possible, the candidates are printed and you can select them by number. `--output_dir` controls where `saved_results` and `plots` are written; it defaults to the folder itself for folder input and to the directory containing the comparison trajectory for explicit files.
+
+For ROS 2 runs, replace the `uv run analyze_trajectory_single` prefix with `ros2 run rpg_trajectory_evaluation analyze_trajectory_single`.
 
 `<result_folder>` should contain the groundtruth, trajectory estimate and optionally the evaluation configuration as mentioned above.
 
 #### Output
-After the evaluation is done, you will find two folders under `<result_folder>`:
-* `saved_results/traj_est`: text files that contains the statistics of different errors
+After the evaluation is done, you will find the following under the output directory:
+* `saved_results/<est_type>`: text files that contains the statistics of different errors (`traj_est` for the default estimate name)
   * `absolute_err_statistics_<align_type>_<align_frames>.yaml`: the statistics of the absolute error using the specified alignment.
   * `relative_error_statistics_<len>.yaml`: the statistics of the relative error calculated using the sub-trajectories of length `<len>`.
   * `cached_rel_err.pickle`: since the relative error is time consuming to compute, we cache the relative error for different sub-trajectory lengths so that we can directly use them next time.
+* `saved_results/result.md`: a Chinese Markdown report comparing the estimate with the groundtruth. It contains the input paths, alignment settings and error statistics tables, plus annotated figures; each figure has a title, coordinate-system description and curve legend.
 * `plots`: plots of absolute errors, relative (odometry) errors and the trajectories.
+
+The report is generated even when `--no_plot` is used; in that case it notes that no plots were created.
 
 For multiple trials, the result for trial `n` will have the corresponding suffix, and the statistics of multiple trials will be summarized in files with the name `mt_*`.
 
 As an example, after executing:
 ```
-python2 scripts/analyze_trajectory_single.py results/euroc_mono_stereo/laptop/vio_mono/laptop_vio_mono_MH_05
+uv run analyze_trajectory_single results/euroc_mono_stereo/laptop/vio_mono/laptop_vio_mono_MH_05
 ```
 you will find the following in `plots`:
 
@@ -140,35 +176,41 @@ you will find the following in `plots`:
 ![abs_err](./doc/mh05_trans_err_vio_mono.png)
 ![rel_traj](./doc/mh05_rel_translation_error.png)
 
+The 3D trajectory plots are saved as `trajectory_3d_gt_<align>.png` (groundtruth only) and `trajectory_3d_<align>.png` (groundtruth and aligned estimate).
+
 #### Parameters
+* `--output_dir`: directory for `saved_results` and `plots`. Default: the input folder for folder input, or the comparison trajectory's directory for explicit files.
 * `--recalculate_errors`: will remove the error cache file mentioned above and re-calculate everything. Default: `False`.
-* `--png`: save plots as png instead of pdf. Default: `False`
-* `--mul_trials`: will analyze `n` runs. In the case of `n > 1`, the estimate files should end with a number suffix (e.g., `stamped_traj_estimate0.txt`). Default: `None`
+* `--png`: save plots as png (default).
+* `--pdf`: save plots as pdf instead of png. Default: `False`
+* `--mul_trials`: will analyze `n` runs. In the case of `n > 1`, the estimate files should end with a number suffix (e.g., `stamped_traj_estimate0.txt`). Default: `None`. This uses the legacy `stamped_*.txt` naming scheme.
 
 #### Advanced: Different estimation type
 Sometimes, a SLAM algorithm outputs different types of trajectories, such as real-time poses and optimized keyframe poses (e.g., pose graph, bundle adjustment). By specifying the estimation type (at the end of the command line), you can ask the script to analyze different files, for example
-* `--est_type traj_est`: analyze `stamped_traj_estimate.txt`
-* `--est_type pose_graph`: analyze `stamped_pose_graph_estimate.txt`
-* `--est_type traj_est pose_graph`: analyze both. In this case you can find the results in corresponding sub-directories in `saved_results` and `plots`.
+* `--est_types traj_est`: analyze `stamped_traj_estimate.txt`
+* `--est_types pose_graph`: analyze `stamped_pose_graph_estimate.txt`
+* `--est_types traj_est pose_graph`: analyze both. In this case you can find the results in corresponding sub-directories in `saved_results` and `plots`.
 
-The mapping from the `est_type` to file names (i.e., `stamped_*.txt`) is defined in `scripts/fn_constants.py`. This is also used for analyzing multiple trajectories. You can find an example in `results/euroc_vislam_mono` for comparing real-time poses and bundle adjustment estimates.
+`--est_type` is accepted as an alias. When `--est_types` is omitted, the comparison trajectory is selected automatically as described above.
+
+The mapping from the `est_type` to file names (i.e., `stamped_*.txt`) is defined in `rpg_trajectory_evaluation/fn_constants.py`. This is also used for analyzing multiple trajectories. You can find an example in `results/euroc_vislam_mono` for comparing real-time poses and bundle adjustment estimates.
 
 ### Multiple trajectory estimates
 
-Similar to the case of single trajectory evaluation, for ROS, run
+Similar to the case of single trajectory evaluation, for ROS 2, run
 
 ```
-rosrun rpg_trajectory_evaluation analyze_trajectories.py \
+ros2 run rpg_trajectory_evaluation analyze_trajectories \
   euroc_vislam_mono.yaml --output_dir=./results/euroc_vislam_mono --results_dir=./results/euroc_vislam_mono --platform laptop --odometry_error_per_dataset --plot_trajectories --rmse_table --rmse_boxplot --mul_trials=10
 ```
-otherwise, run
+otherwise, with the uv environment, run
 
 ```
-python2 scripts/analyze_trajectories.py \
+uv run analyze_trajectories \
   euroc_vislam_mono.yaml --output_dir=./results/euroc_vislam_mono --results_dir=./results/euroc_vislam_mono --platform laptop --odometry_error_per_dataset --plot_trajectories --rmse_table --rmse_boxplot --mul_trials=10
 ```
 
-These commands will look for `<platform>` folder under `results_dir` and analyze the algorithms and datasets combinations specified in `analyze_trajectories.py`, as described below.
+These commands will look for `<platform>` folder under `results_dir` and analyze the algorithms and datasets combinations specified in the configuration file, as described below.
 
 #### Datasets organization
 The datasets under `results` are organized as 
@@ -187,8 +229,8 @@ The datasets under `results` are organized as
 ```
 
 Each sub-folder is of the same format as mentioned above.
-You need to specify the algorithms and datasets to analyze for the script `analyze_trajectories.py`.
-We use a configuration file under `scripts/analyze_trajectories_config` to sepcify the details. For example, in `euroc_vio_mono_stereo.yaml`
+You need to specify the algorithms and datasets to analyze for the script `analyze_trajectories`.
+We use a configuration file under `analyze_trajectories_config` to sepcify the details. For example, in `euroc_vio_mono_stereo.yaml`
 
 ```
 Datasets:
@@ -258,7 +300,7 @@ Several example plots (from `analyze_trajectories_config/euroc_vislam_mono.yaml`
 
 #### Parameters
 Configuration:
-* `config` configuration file under `scripts/analyze_trajectories_config`
+* `config` configuration file under `analyze_trajectories_config`
 
 Paths:
 * `--results_dir`: the folder where the `<platform>` folder will be found. Default: `results` folder in the toolbox folder.
@@ -289,22 +331,24 @@ Misc:
 ## Utilities
 
 ### Dataset tools
-Under `scripts/dataset_tools`, we provide several scripts to prepare your dataset for analysis. Specifically:
-* `asl_groundtruth_to_pose.py`: convert EuRoC style format to the format used in this toolbox.
-* `bag_to_pose.py`: extract `PoseStamped`/`PoseWithCovarianceStamped` in a ROS bag to the desired format.
-* `transform_trajectory.py`: transformed a pose file of our format by a given transformation, useful for applying hand-eye calibration to groundtruth/estimate before analysis.
+The package provides several tools to prepare your dataset for analysis. They can be run with `ros2 run rpg_trajectory_evaluation <tool>` or directly from the uv environment with `uv run <tool>`. Specifically:
+* `asl_groundtruth_to_pose`: convert EuRoC style format to the format used in this toolbox.
+* `bag_to_pose`: extract `PoseStamped`/`PoseWithCovarianceStamped` messages from a ROS 2 bag to the desired format. This tool needs a sourced ROS 2 environment.
+* `transform_trajectory`: transformed a pose file of our format by a given transformation, useful for applying hand-eye calibration to groundtruth/estimate before analysis.
 
-### Misc scripts
-Under `scripts`, there are also some scripts for conveniece:
-* `recursive_clean_results_dir.py`: remove all `saved_results` directories recursively.
-* `change_eval_cfg_recursive.py`: recursively changing the evaluation parameter within a given result folder.
+### Misc tools
+The package also provides:
+* `recursive_clean_results_dir`: remove all `saved_results` directories recursively.
+* `change_eval_cfg_recursive`: recursively changing the evaluation parameter within a given result folder.
 
 ## Customization
-Most of the error computing is done via the class `Trajectory` (`src/rpg_trajectory_evaluation/trajectory.py`).
+Most of the error computing is done via the class `Trajectory` (`ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/trajectory.py`).
 If you would like to customize your evaluation, you can use this class directly.
 The API of this class is quite simple
 
 ```python
+from rpg_trajectory_evaluation import Trajectory
+
 # init with the result folder.
 # You can also specify the subtrajecotry lengths and alignment parameters in the initialization.
 traj = Trajectory(result_dir)
