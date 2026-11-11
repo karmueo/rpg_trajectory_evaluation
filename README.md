@@ -176,7 +176,7 @@ you will find the following in `plots`:
 ![abs_err](./doc/mh05_trans_err_vio_mono.png)
 ![rel_traj](./doc/mh05_rel_translation_error.png)
 
-The 3D trajectory plots are saved as `trajectory_3d_gt_<align>.png` (groundtruth only) and `trajectory_3d_<align>.png` (groundtruth and aligned estimate).
+The 3D trajectory plots are saved as `trajectory_3d_gt_<align>.png` (groundtruth only), `trajectory_3d_est_<align>.png` (aligned estimate only) and `trajectory_3d_<align>.png` (groundtruth and aligned estimate). All trajectory plots (figures 1 to 5 in `result.md`) mark the start with a small filled circle and the end with a cross. Line opacity is 70% in the figures that overlay groundtruth and estimate (figures 1, 2 and 5), while the single-trajectory figures (figures 3 and 4) stay fully opaque.
 
 #### Parameters
 * `--output_dir`: directory for `saved_results` and `plots`. Default: the input folder for folder input, or the comparison trajectory's directory for explicit files.

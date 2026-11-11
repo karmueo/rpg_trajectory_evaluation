@@ -1,393 +1,386 @@
 # rpg_trajectory_evaluation
 
-本仓库实现了视觉（惯性）里程计中常用的轨迹评估方法。具体包括：
+本工具评估视觉（惯性）里程计轨迹，支持轨迹对齐、绝对轨迹误差（ATE）和相对误差（RE），输出 YAML 统计、图表及单次评估的中文报告。适用于 Python >=3.10（uv 环境固定 3.12）、Ubuntu 24.04 / ROS 2 Jazzy。以下从仓库根目录开始，使用 Bash；先安装 uv，或选择 ROS 2 构建方式。输入为带秒级时间戳的真值与估计位姿，格式见[准备数据](#准备数据)。依赖与版本依据：[pyproject.toml](pyproject.toml)、[.python-version](.python-version)、[setup.py](ros2_ws/src/rpg_trajectory_evaluation/setup.py)。
 
-* 多种轨迹对齐方式（刚体变换、相似变换和仅偏航角旋转）
-* 常用误差指标：绝对轨迹误差（ATE）和相对/里程计误差（RE）
-
-> 相对误差的实现方式与 [KITTI](http://www.cvlibs.net/publications/Geiger2012CVPR.pdf) 一致，因为这是使用最广泛的版本。
-
-由于轨迹评估涉及很多细节，本工具箱以易用为目标设计。
-它既可用于分析[单条轨迹估计](#单条轨迹估计)，也可以用一条命令[在多个数据集上对比不同算法](#多条轨迹估计)（例如[这篇论文](http://rpg.ifi.uzh.ch/docs/ICRA18_Delmerico.pdf)，以及 [IROS 2019 VIO 竞赛](http://rpg.ifi.uzh.ch/uzh-fpv.html)中的用法）。
-用户只需提供所需格式的真值和估计，并指定轨迹对齐方式。
-工具箱会生成（几乎）可直接用于论文的图表和表格。
-此外，评估过程可以很方便地[定制](#定制trajectory-类)。
-
-如果你在学术工作中使用本代码，请引用以下论文：
-
-Zichao Zhang, Davide Scaramuzza: A Tutorial on Quantitative Trajectory Evaluation for Visual(-Inertial) Odometry, IEEE/RSJ Int. Conf. Intell. Robot. Syst. (IROS), 2018. [PDF](https://rpg.ifi.uzh.ch/docs/IROS18_Zhang.pdf)
-
-```
-@InProceedings{Zhang18iros,
-  author = {Zhang, Zichao and Scaramuzza, Davide},
-  title = {A Tutorial on Quantitative Trajectory Evaluation for Visual(-Inertial) Odometry},
-  booktitle = {IEEE/RSJ Int. Conf. Intell. Robot. Syst. (IROS)},
-  year = {2018}
-}
-```
-
-1. [安装](#安装)
-2. [准备数据](#准备数据)
-   * [位姿](#位姿)
-   * [评估参数](#评估参数)
-   * [起始与结束时间](#起始与结束时间)
-3. [运行评估](#运行评估)
-   * [单条轨迹估计](#单条轨迹估计)
-   * [多条轨迹估计](#多条轨迹估计)
-4. [工具](#工具)
-   * [数据集工具](#数据集工具)
-   * [其他脚本](#其他脚本)
-5. [定制：`Trajectory` 类](#定制trajectory-类)
-6. [致谢与贡献者](#致谢与贡献者)
+学术使用请引用：Zichao Zhang, Davide Scaramuzza, *A Tutorial on Quantitative Trajectory Evaluation for Visual(-Inertial) Odometry*, IROS 2018（[论文](https://rpg.ifi.uzh.ch/docs/IROS18_Zhang.pdf)）。
 
 ## 安装
-本工具箱使用 Python 3 编写，已在 Ubuntu 24.04 和 ROS 2 Jazzy 上测试。
-本包既可以作为 ROS 2 包使用，也可以作为独立 Python 工具使用。
 
-**ROS 2 包**：包源码位于 `ros2_ws/src/rpg_trajectory_evaluation`。在 `ros2_ws` 工作区下用 `colcon` 构建，构建、安装和日志输出都会写入 `ros2_ws/`：
+### 独立 Python 环境（uv）
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-cd ros2_ws
-colcon build --symlink-install
-source install/setup.bash
-```
-
-**独立 Python 环境**：在仓库根目录用 `uv` 创建虚拟环境：
-
-```bash
+# 在仓库根目录安装 Python 依赖并创建 .venv
 uv sync
-source .venv/bin/activate   # 可选，也可以直接使用 `uv run ...`
 ```
 
-**依赖**：
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| 无（本流程无需额外参数） | 使用仓库开发环境配置 | 输入：pyproject.toml、uv.lock；输出：.venv | Python 版本见 .python-version；包含 numpy、matplotlib、colorama、PyYAML 和开发依赖 |
 
-* `numpy` 和 `matplotlib`，用于分析与绘图
-* `colorama`，用于彩色控制台输出
-* `PyYAML`，用于读取 YAML 配置
-* 可选：LaTeX（`latex`、`dvipng`），用于 LaTeX 渲染的图表；未安装时会自动回退到 matplotlib 的 mathtext
-* ROS 2（`rclpy`、`rosbag2_py`、`rosidl_runtime_py`、`geometry_msgs`）仅 `bag_to_pose` 数据集工具需要；可用 `rosdep install --from-paths ros2_ws/src --ignore-src -r -y` 安装
+后续使用 `uv run`，无需激活虚拟环境。图表可选用 LaTeX（`latex`、`dvipng`）；未安装时回退到 matplotlib mathtext。
+
+### ROS 2 包（替代方式）
+
+已安装 ROS 2 Jazzy、rosdep 和 colcon 时使用此分支。`ros2 run` 使用系统 Python；uv 环境不能代替 ROS 2 包依赖。
+
+```bash
+# 在当前终端加载 ROS 2 Jazzy 环境
+source \
+  /opt/ros/jazzy/setup.bash
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| 脚本路径（位置参数） | 选择要加载的环境脚本 | 输入文件；修改当前 Shell 环境 | 必填，无默认值；后续也用于 install/setup.bash |
+
+```bash
+# 从仓库根目录安装 ROS 2 包依赖
+rosdep install \
+  --from-paths ros2_ws/src \
+  --ignore-src \
+  -r \
+  -y
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| --from-paths | 从源码路径读取包依赖 | 输入目录 | 本流程指定 ros2_ws/src |
+| --ignore-src | 跳过源码中已有的包 | 行为控制项（非输入输出） | 本流程启用 |
+| -r | 遇到错误后继续处理其他依赖 | 行为控制项（非输入输出） | 本流程启用；结束后需确认没有未解决的依赖错误 |
+| -y | 自动同意安装提示 | 行为控制项（非输入输出） | 本流程启用；可能需要系统安装权限 |
+
+```bash
+# 进入 ROS 2 工作区
+cd \
+  ros2_ws
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| 目录（位置参数） | 设置当前工作目录 | 输入目录 | 本流程必填；此处为仓库下的 ros2_ws |
+
+```bash
+# 构建 ROS 2 包并使用符号链接安装
+colcon build \
+  --symlink-install
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| --symlink-install | 对支持的文件使用符号链接 | 行为控制项；输出：工作区 build/、install/、log/ | 本流程启用 |
+
+```bash
+# 在当前终端加载构建后的包
+source \
+  install/setup.bash
+```
+
+此处仍在 `ros2_ws/`。后续示例从仓库根目录执行；新终端需重新加载 `/opt/ros/jazzy/setup.bash` 和工作区 `install/setup.bash`。
 
 ## 准备数据
-每个待评估的轨迹估计（例如视觉惯性里程计算法的输出）都组织为一个独立的文件夹。
-每个文件夹至少需要包含两个文本文件，分别给出带时间戳的真值位姿和估计位姿。
 
-* `stamped_groundtruth.txt`：带时间戳的真值位姿
-* `stamped_traj_estimate.txt`：带时间戳的估计位姿
-* （可选）`eval_cfg.yaml`：指定评估参数
-* （可选）`start_end_time.yaml`：指定用于分析的起始和结束时间（单位为秒）
+### 位姿
 
+每次运行使用一个结果目录，放入 `stamped_groundtruth.txt` 和 `stamped_traj_estimate.txt`。两者均为空格分隔，每行格式如下；时间戳以秒为单位，四元数顺序为 `qx qy qz qw`。
 
-若要分析 `N` 次运行的结果，估计位姿文件应带有 `0` 到 `N-1` 的后缀。
-可参见 `results` 下的文件夹示例。
-这些文件包含了**复现定量轨迹评估结果所需的全部关键信息**。
-
-#### 位姿
-真值（`stamped_groundtruth.txt`）和估计位姿（`stamped_traj_estimate.txt`）采用如下格式指定
-
-```
+```text
 # timestamp tx ty tz qx qy qz qw
-1.403636580013555527e+09 1.258278699999999979e-02 -1.561510199999999963e-03 -4.015300900000000339e-02 -5.131151899999999988e-02 -8.092916900000000080e-01 8.562779200000000248e-04 5.851609599999999523e-01
-......
+1403636580.0135555 0.0125828 -0.0015615 -0.0401530 -0.0513115 -0.8092917 0.0008563 0.5851610
 ```
 
-注意，文件以空格分隔，四元数的 `w` 分量放在最后。
-时间戳的单位为秒，用于建立时间对应关系。
+多次试验的估计文件使用 `stamped_traj_estimate0.txt` 至 `stamped_traj_estimateN-1.txt`，共用真值文件；单次试验不加数字后缀。其他估计类型对应文件为 `pose_graph` → `stamped_pose_graph_estimate.txt`、`ba_estimate` → `stamped_ba_estimate.txt`，见[文件名映射](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/fn_constants.py)。
 
-`rpg_trajectory_evaluation/cli/dataset_tools` 下有一些工具，可帮助你把数据格式（EuRoC 风格、ROS 2 bag）转换为上述格式。
-详见下文相应小节。
+### 评估参数
 
-#### 评估参数
-目前 `eval_cfg.yaml` 指定两个用于轨迹对齐的参数（用于绝对误差）：
-* `align_type`：
-  * `sim3`：相似变换（用于纯视觉单目情形）
-  * `se3`：刚体变换（用于纯视觉双目情形）
-  * `posyaw`：平移加上绕重力方向的旋转（用于视觉惯性情形）
-  * `none`：不对轨迹做对齐
-* `align_num_frames`：用于轨迹对齐的位姿数量（从开头算起）。`-1` 表示使用全部位姿。
+可在结果目录手动创建 `eval_cfg.yaml`；存在时须同时包含两个配置项。省略文件时默认使用 `sim3` 和全部位姿。
 
-**如果该文件不存在，将使用 `sim3` 和全部位姿进行轨迹对齐。**
+```yaml
+align_type: sim3
+align_num_frames: -1
+```
 
-#### 起始与结束时间
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| align_type（YAML 配置） | 设置绝对误差计算前的对齐方式 | 输入值 | 文件不存在时 sim3；支持 sim3（相似变换，单目）、se3（刚体变换，双目）、posyaw（平移与偏航角，视觉惯性）、none（不对齐） |
+| align_num_frames（YAML 配置） | 设置从开头选取的对齐位姿数 | 输入值 | 文件不存在时 -1（全部）；也可指定正整数，须有足够位姿供对应对齐方式使用 |
 
-`start_end_time.yaml` 可以指定以下内容（以真值时间为准）：
-* `start_time_sec`：仅使用该时间之后的位姿进行分析
-* `end_time_sec`：仅使用该时间之前的位姿进行分析
+### 起始与结束时间
 
-**如果该文件不存在，将对 `stamped_traj_estimate.txt` 中的所有位姿进行分析。**
+可在结果目录手动创建 `start_end_time.yaml`，按真值时间筛选；两个键均可省略。不创建文件时不额外限制时间范围，仍只评估能够匹配的位姿。
 
+```yaml
+start_time_sec: 1403636580.0
+end_time_sec: 1403636600.0
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| start_time_sec（YAML 配置） | 设置开始时间，包含端点 | 输入值 | 默认负无穷；支持秒级时间戳，上述值为示例 |
+| end_time_sec（YAML 配置） | 设置结束时间，包含端点 | 输入值 | 默认正无穷；支持不早于开始时间的秒级时间戳，上述值为示例 |
+
+配置与时间筛选依据：[trajectory.py](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/trajectory.py)、[trajectory_loading.py](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/trajectory_loading.py)。显式输入两个文件时，配置读取目录为对比轨迹所在目录；文件夹输入时为该文件夹。
 
 ## 运行评估
-我们可以对单条估计结果进行评估，也可以对多种算法和多个数据集进行评估。
 
 ### 单条轨迹估计
 
-作为 ROS 2 包时，运行
-
-```
-ros2 run rpg_trajectory_evaluation analyze_trajectory_single <input> [comparison]
-```
-
-在 uv 环境下运行时，运行
-
-```
-uv run analyze_trajectory_single <input> [comparison]
+```bash
+# 评估仓库内的 EuRoC 单次试验示例并生成图表
+uv run analyze_trajectory_single \
+  results/euroc_mono_stereo/laptop/vio_mono/laptop_vio_mono_MH_05
 ```
 
-第一个参数可以是结果文件夹，也可以是真值轨迹文件：
+默认在输入目录生成 `saved_results/result.md`、`saved_results/<est_type>/` 下的 `absolute_err_statistics_<align_type>_<align_frames>.yaml` 和 `relative_error_statistics_<len>.yaml`，以及 `plots/<est_type>/` 下的图表。相对误差缓存位于 `saved_results/<est_type>/cached/cached_rel_err.pickle`；多次试验文件带后缀，汇总文件以 `mt_` 开头。三维图包括 `trajectory_3d_gt_<align>`（真值）、`trajectory_3d_est_<align>`（对齐后的对比轨迹）与 `trajectory_3d_<align>`（真值和对齐估计）；`result.md` 中依次为图 3、图 4、图 5。所有轨迹图（图 1 至图 5）用实心小圆点标出起点、用叉号标出终点；同时显示真值与对比轨迹的图（图 1、图 2、图 5）线条为 70% 不透明，仅显示单条轨迹的图（图 3、图 4）保持不透明。使用 `--no_plot` 仍会生成报告。
+
+参数依据：[单次评估入口](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/cli/analyze_trajectory_single.py)。
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| input_path（位置参数） | 指定结果目录或真值轨迹 | 输入目录或文件 | 必填，无默认值；文件输入时必须提供 comparison_path |
+| comparison_path（位置参数） | 显式选择对比轨迹 | 输入文件 | 默认未设置；目录输入时自动识别，文件输入时必填 |
+| --output_dir | 设置统计与报告的输出根目录 | 输出目录 | 默认：目录输入时为该目录，文件输入时为对比轨迹所在目录 |
+| --plots_dir | 单独设置图表根目录 | 输出目录 | 默认：<output_dir>/plots |
+| --mul_trials | 设置试验次数 | 输入值 | 默认 None（单次）；支持正整数；大于 1 时使用传统文件名及从 0 开始的后缀 |
+| --mul_plot_idx | 选择用于绘图的试验索引 | 输入值 | 默认 [0]；当前仅支持选择一个索引，按成功加载的试验列表取值 |
+| --est_types、--est_type | 按固定文件名选择一种或多种估计类型 | 输入值 | 默认自动识别；支持 traj_est、pose_graph、ba_estimate；显式传入时至少一个值 |
+| --recalculate_errors | 删除相对误差缓存和匹配文件后重算 | 行为控制项（非输入输出） | 默认 False；修改输入或评估配置后使用 |
+| --png | 使用 PNG 图表格式 | 行为控制项（非输入输出） | 默认即为 PNG；与 --pdf 同传时 PDF 优先 |
+| --pdf | 使用 PDF 图表格式 | 行为控制项（非输入输出） | 默认 False |
+| --plot_scale_traj | 添加按尺度误差着色的轨迹图，耗时较长 | 行为控制项（非输入输出） | 默认 False |
+| --plot、--no_plot | 启用或关闭绘图 | 行为控制项（非输入输出） | 默认启用；同时传入时以后出现者为准 |
+| -h、--help | 显示帮助并退出 | 行为控制项（非输入输出） | 默认不启用 |
+
+自动识别仅扫描目录第一层 `.txt` 文件，跳过空行/注释后的首条记录需至少包含 8 列数值；文件名含 `groundtruth`、`ground_truth` 或独立 `gt` 字段时作为真值候选。候选不唯一时需在交互终端选择，或显式传入文件。显式对比文件不能与 `--est_types` 或 `--mul_trials > 1` 同用。
+
+下列路径均为需替换的示例值：
 
 ```bash
-# 结果文件夹：自动识别真值和对比轨迹
-uv run analyze_trajectory_single <result_folder>
-
-# 结果文件夹 + 显式指定对比轨迹
-uv run analyze_trajectory_single <result_folder> <comparison.txt>
-
-# 显式指定真值轨迹和对比轨迹
-uv run analyze_trajectory_single <groundtruth.txt> <comparison.txt>
+# 显式选择真值和对比轨迹，并只生成统计与报告
+uv run analyze_trajectory_single \
+  /path/to/groundtruth.txt \
+  /path/to/comparison.txt \
+  --no_plot
 ```
 
-当第一个参数是文件夹时，脚本会扫描该文件夹第一层的 `.txt` 文件，并将第一条非空行至少包含 8 列数值的文件视为轨迹。文件名包含 `groundtruth`、`ground_truth` 或独立的 `gt` 字段（例如 `gt.txt`、`GT.txt`、`stamped_gt.txt`）时视为真值候选，另一条轨迹则作为对比轨迹。如果候选不唯一，脚本会打印编号供你在终端选择。`--output_dir` 控制 `saved_results` 和 `plots` 的输出位置：文件夹输入时默认为该文件夹，显式文件输入时默认为对比轨迹所在目录。
+第一个位置参数也可换为结果目录，保留第二个位置参数以覆盖自动选择。
 
-ROS 2 环境下，把命令中的 `uv run analyze_trajectory_single` 替换为 `ros2 run rpg_trajectory_evaluation analyze_trajectory_single` 即可。
-
-`<result_folder>` 应包含上文提到的真值、轨迹估计，以及可选的评估配置。
-
-#### 输出
-评估完成后，你会在输出目录下看到：
-* `saved_results/<est_type>`：包含各类误差统计的文本文件（默认估计文件名对应 `traj_est`）
-  * `absolute_err_statistics_<align_type>_<align_frames>.yaml`：使用指定对齐方式得到的绝对误差统计。
-  * `relative_error_statistics_<len>.yaml`：使用长度为 `<len>` 的子轨迹计算得到的相对误差统计。
-  * `cached_rel_err.pickle`：由于相对误差计算耗时较多，我们会按不同子轨迹长度缓存相对误差，以便下次直接使用。
-* `saved_results/result.md`：中文 Markdown 评估报告，包含输入路径、对齐配置和误差统计表格，以及带注释的图表；每张图都标注标题、坐标系和曲线含义。
-* `plots`：绝对误差、相对（里程计）误差以及轨迹的图表。
-
-即使使用 `--no_plot`，报告也会生成，并在图表章节注明本次未生成图表。
-
-对于多次试验，第 `n` 次试验的结果会带有相应后缀，多次试验的统计会汇总到名为 `mt_*` 的文件中。
-
-例如，执行：
+```bash
+# 按传统命名评估实时位姿和位姿图轨迹
+uv run analyze_trajectory_single \
+  /path/to/result_folder \
+  --est_types traj_est pose_graph
 ```
-uv run analyze_trajectory_single results/euroc_mono_stereo/laptop/vio_mono/laptop_vio_mono_MH_05
+
+ROS 2 分支需先加载环境，再从仓库根目录执行：
+
+```bash
+# 通过 ROS 2 运行相同的单次评估入口
+ros2 run rpg_trajectory_evaluation analyze_trajectory_single \
+  results/euroc_mono_stereo/laptop/vio_mono/laptop_vio_mono_MH_05
 ```
-之后，你会在 `plots` 中看到：
 
-![top_traj](./doc/mh05_top_vio_mono.png)
-![abs_err](./doc/mh05_trans_err_vio_mono.png)
-![rel_traj](./doc/mh05_rel_translation_error.png)
-
-三维轨迹图会分别保存为 `trajectory_3d_gt_<align>.png`（仅真值）和 `trajectory_3d_<align>.png`（真值与对齐后的估计）。
-
-#### 参数
-* `--output_dir`：`saved_results` 和 `plots` 的输出目录。默认：文件夹输入时为该文件夹，显式文件输入时为对比轨迹所在目录。
-* `--recalculate_errors`：删除上文提到的误差缓存文件并重新计算全部内容。默认：`False`。
-* `--png`：将图表保存为 png（默认）。
-* `--pdf`：将图表保存为 pdf 而不是 png。默认：`False`
-* `--mul_trials`：分析 `n` 次运行。当 `n > 1` 时，估计文件应以数字后缀结尾（例如 `stamped_traj_estimate0.txt`）。默认：`None`。该选项使用传统的 `stamped_*.txt` 命名方式。
-
-#### 进阶：不同的估计类型
-有时，SLAM 算法会输出多种类型的轨迹，例如实时位姿和优化后的关键帧位姿（例如位姿图、光束法平差）。通过在命令行末尾指定估计类型，可以让脚本分析不同的文件，例如
-* `--est_types traj_est`：分析 `stamped_traj_estimate.txt`
-* `--est_types pose_graph`：分析 `stamped_pose_graph_estimate.txt`
-* `--est_types traj_est pose_graph`：同时分析两者。此时你可以在 `saved_results` 和 `plots` 下对应的子目录中找到结果。
-
-`--est_type` 可以作为 `--est_types` 的别名。省略 `--est_types` 时，脚本按上文规则自动选择对比轨迹。
-
-`est_type` 到文件名（即 `stamped_*.txt`）的映射定义在 `rpg_trajectory_evaluation/fn_constants.py` 中。该映射同样用于分析多条轨迹。可以在 `results/euroc_vislam_mono` 中找到一个对比实时位姿与光束法平差估计的示例。
+参数与上表一致；批量评估和下列工具也可将 `uv run <入口>` 替换为 `ros2 run rpg_trajectory_evaluation <入口>`。
 
 ### 多条轨迹估计
 
-与单条轨迹评估类似，对于 ROS 2，运行
+输入目录须按 `<results_dir>/<platform>/<algorithm>/<platform>_<algorithm>_<dataset>/` 组织，每个末级目录采用[准备数据](#准备数据)中的文件格式。按需编辑 [analyze_trajectories_config](analyze_trajectories_config) 中的配置；以下为可编辑的最小示例：
 
-```
-ros2 run rpg_trajectory_evaluation analyze_trajectories \
-  euroc_vislam_mono.yaml --output_dir=./results/euroc_vislam_mono --results_dir=./results/euroc_vislam_mono --platform laptop --odometry_error_per_dataset --plot_trajectories --rmse_table --rmse_boxplot --mul_trials=10
-```
-否则在 uv 环境下运行
-
-```
-uv run analyze_trajectories \
-  euroc_vislam_mono.yaml --output_dir=./results/euroc_vislam_mono --results_dir=./results/euroc_vislam_mono --platform laptop --odometry_error_per_dataset --plot_trajectories --rmse_table --rmse_boxplot --mul_trials=10
-```
-
-这些命令会在 `results_dir` 下查找 `<platform>` 文件夹，并分析如下所述的、由配置文件指定的算法与数据集组合。
-
-#### 数据集组织方式
-`results` 下的数据集组织为
-
-```
-<platform>
-├── <alg1>
-│   ├── <platform>_<alg1>_<dataset1>
-│   ├── <platform>_<alg1>_<dataset2>
-│   └── ......
-└── <alg2>
-│   ├── <platform>_<alg2>_<dataset1>
-│   ├── <platform>_<alg2>_<dataset2>
-    ├── ......
-......
-```
-
-每个子文件夹的格式与上文所述相同。
-你需要为脚本 `analyze_trajectories` 指定要分析的算法和数据集。
-我们使用 `analyze_trajectories_config` 下的配置文件来指定这些细节。例如，在 `euroc_vio_mono_stereo.yaml` 中
-
-```
+```yaml
 Datasets:
-  MH_01:        ---> 数据集名称
-    label: MH01 ---> 数据集的绘图标签
-  MH_03:
-    label: MH03
   MH_05:
     label: MH05
-  V2_01:
-    label: V201
-  V2_02:
-    label: V202
-  V2_03:
-    label: V203
 Algorithms:
-  vio_mono:         ---> 算法名称
-    fn: traj_est    ---> 用于确定正确文件名的估计类型
-    label: vio_mono ---> 算法的绘图标签
-  vio_stereo: 
+  vio_mono:
     fn: traj_est
-    label: vio_stereo
-RelDistances: []   ---> 用于指定相对误差中的子轨迹长度，见下文。
+    label: vio_mono
+RelDistances: []
 RelDistancePercentages: []
 ```
 
-将分析以下文件夹
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| Datasets（YAML 配置） | 设置数据集名称和绘图文字 | 输入值 | 必填，无默认值；每个数据集须有 label，可选 title |
+| Algorithms（YAML 配置） | 设置算法名称、估计类型和绘图标签 | 输入值 | 必填，无默认值；每个算法须有 fn 和 label；fn 支持 traj_est、pose_graph、ba_estimate |
+| RelDistances（YAML 配置） | 设置所有数据集共用的子轨迹长度（米） | 输入值 | 默认 []；非空时优先于 RelDistancePercentages |
+| RelDistancePercentages（YAML 配置） | 按各数据集轨迹总长设置子轨迹比例 | 输入值 | 未指定或为空且 RelDistances 为空时使用 [0.1, 0.2, 0.3, 0.4, 0.5]；使用小数比例而非百分数整数 |
 
+配置解析与默认比例依据：[批量评估入口](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/cli/analyze_trajectories.py)、[Trajectory](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/trajectory.py)。
+
+```bash
+# 对比示例中的算法和数据集，汇总十次试验并生成表格与图表
+uv run analyze_trajectories \
+  analyze_trajectories_config/euroc_vislam_mono.yaml \
+  --output_dir=./results/euroc_vislam_mono \
+  --results_dir=./results/euroc_vislam_mono \
+  --platform laptop \
+  --odometry_error_per_dataset \
+  --plot_trajectories \
+  --rmse_table \
+  --rmse_boxplot \
+  --mul_trials=10
 ```
-├── vio_mono
-│   ├── laptop_vio_mono_MH_01
-│   ├── laptop_vio_mono_MH_03
-│   ├── laptop_vio_mono_MH_05
-│   ├── laptop_vio_mono_V2_01
-│   ├── laptop_vio_mono_V2_02
-│   └── laptop_vio_mono_V2_03
-└── vio_stereo
-    ├── laptop_vio_stereo_MH_01
-    ├── laptop_vio_stereo_MH_03
-    ├── laptop_vio_stereo_MH_05
-    ├── laptop_vio_stereo_V2_01
-    ├── laptop_vio_stereo_V2_02
-    └── laptop_vio_stereo_V2_03
-```
 
-##### 为相对位姿误差指定子轨迹长度
-相对位姿误差由不同长度的子轨迹计算得到，可通过配置文件中的以下字段指定
-* `RelDistances`：一组长度，将用于所有数据集
-* `RelDistancePercentages`：长度将按每个数据集总长度的特定百分比独立选取。**该设置会被 `RelDistances` 覆盖**。
-如果以上两项都未指定，将使用默认百分比（参见 `src/trajectory.py`）。
+每个输入结果目录下生成 `saved_results/`；汇总输出写入 `--output_dir`，包括 `<platform>_<dataset>_results/` 下的图表、`all_translation_rmse` / `all_rotation_rmse` 箱线图（多次试验），以及 `<platform>_translation_rmse_<标识符>.txt` LaTeX 表格。多次试验表格默认使用 `mean, median (min - max)`。批量入口不生成单次入口的 `result.md`。
 
-
-#### 输出
-评估过程会在每个结果文件夹中生成 `saved_results` 文件夹，
-与单条轨迹估计的评估相同。
-此外，它还会在 `results` 文件夹下生成用于对比不同算法的图表和文本文件：
-* 在 `<platform>_<dataset>_results` 文件夹中，可以找到该数据集上的轨迹俯视/侧视图，以及相对位姿误差的箱线图。
-* `all_translation/rotation_rmse.pdf`：所有数据集上多次运行 RMSE 的箱线图。
-* `<platform>_translation_rmse<algorithm_dataset_string>.txt`：汇总所有配置 RMSE 的 `Latex` 表格。`<algorithm_dataset_string>` 是由所评估的算法和数据集生成的标识符。表格中的数值按 `mean, median (min, max)` 的格式，由多次试验的误差统计得到。
-
-这些表格可直接用于 `Latex` 文件。
-
-以下是一些示例图表（来自 `analyze_trajectories_config/euroc_vislam_mono.yaml`），用于对比不同算法的性能
-
-![overall_top_traj_mh03](./doc/MH_03_trajectory_top.png)
-![overall_rel_err_mh03](./doc/MH_03_trans_yaw_error.png)
-
-#### 参数
-配置：
-* `config`：`analyze_trajectories_config` 下的配置文件
-
-路径：
-* `--results_dir`：将在此文件夹下查找 `<platform>` 文件夹。默认：工具箱文件夹中的 `results` 文件夹。
-* `--output_dir`：所有图表和文本文件的输出文件夹。默认：工具箱文件夹中的 `results` 文件夹。
-* `--platform`：要在 `<results_dir>` 下查找的结果文件夹。默认：`laptop`
-
-分析选项：
-* `--mul_trials`：要分析的试验次数。默认：`None`。若某些算法-数据集配置的运行次数更少，则只考虑可用的那些。
-
-* `--odometry_error_per_dataset`：是否为每个数据集计算相对误差。默认：`False`。
-* `--overall_odometry_error`：是否计算并对比不同算法在所有数据集上的总体里程计误差。默认：`False`。
-
-* `--rmse_table`：是否生成平移 RMSE（绝对误差）表格。默认：`False`。
-  * `--rmse_table_median_only`：默认情况下，`--rmse_table` 选项会保存多次运行的中位数/均值/最小值/最大值。使用该选项则只保存中位数。
-  * `--rmse_boxplot`：是否为不同数据集的 RMSE 绘制箱线图（仅在分析多次试验结果时有效）。默认：`False`。
-
-* `--plot_trajectories`：是否绘制轨迹。默认：`False`。默认会生成很多图表，其中一些可以通过以下选项关闭。
-  * `--no_plot_side`：不绘制侧视图
-  * `--no_plot_aligned`：不绘制真值与估计之间的对齐连线
-  * `--no_plot_traj_per_alg`：不为每个算法单独生成图表
-
-其他：
-* `--recalculate_errors:`：是否清除缓存并重新计算全部内容。默认：`False`。
-* `--png`：将图表保存为 png 而不是 pdf。默认：`False`
-* `--dpi`：允许以更高的 dpi 保存。默认：300
-* `--no_sort_names`：绘图/写出结果时不排序数据集和算法的名称（使用配置文件中的顺序）。默认：名称会被排序。
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| config（位置参数） | 指定算法和数据集配置 | 输入文件 | 必填，无默认值；相对路径先按当前目录查找，不存在时按当前目录下 analyze_trajectories_config/ 查找 |
+| --results_dir | 设置包含平台目录的结果根目录 | 输入目录 | 默认：当前工作目录下 results/ |
+| --output_dir | 设置汇总图表和文本输出位置 | 输出目录 | 默认：当前工作目录下 results/；同时复制配置文件到此目录 |
+| --platform | 选择平台目录及结果名前缀 | 输入值 | 默认 laptop；支持与实际目录名一致的字符串，无枚举限制 |
+| --mul_trials | 设置试验次数 | 输入值 | 默认 None（单次）；多次试验使用从 0 开始的数字后缀，只汇总成功加载的试验 |
+| --odometry_error_per_dataset | 分数据集汇总相对误差 | 行为控制项（非输入输出） | 默认 False |
+| --overall_odometry_error | 汇总所有数据集的相对误差及表格 | 行为控制项（非输入输出） | 默认 False；各数据集子轨迹长度相同时另生成总体对比图 |
+| --rmse_table | 输出平移 RMSE LaTeX 表格 | 行为控制项（非输入输出） | 默认 False |
+| --rmse_table_median_only | 表格仅保留中位数 | 行为控制项（非输入输出） | 默认 False；配合 --rmse_table |
+| --rmse_boxplot | 绘制 RMSE 箱线图 | 行为控制项（非输入输出） | 默认 False；仅多次试验有效 |
+| --write_time_statistics | 写出起止时间及测量数统计 | 行为控制项；输出文件 | 默认 False；输出到各数据集结果目录的 <dataset>_meas_stats.json |
+| --plot_trajectories | 绘制轨迹图 | 行为控制项（非输入输出） | 默认 False |
+| --no_plot_side | 关闭侧视图 | 行为控制项（非输入输出） | 默认不关闭 |
+| --no_plot_aligned | 关闭真值与估计的对齐连线 | 行为控制项（非输入输出） | 默认不关闭 |
+| --no_plot_traj_per_alg | 关闭每个算法的独立轨迹图 | 行为控制项（非输入输出） | 默认不关闭 |
+| --recalculate_errors | 清除缓存与匹配文件后重算 | 行为控制项（非输入输出） | 默认 False |
+| --png | 改用 PNG 图表格式 | 行为控制项（非输入输出） | 默认 False，默认格式 PDF |
+| --dpi | 设置图表分辨率 | 输入值 | 默认 300；整数 |
+| --no_sort_names | 保留配置中的算法和数据集顺序 | 行为控制项（非输入输出） | 默认不启用，按名称排序 |
+| -h、--help | 显示帮助并退出 | 行为控制项（非输入输出） | 默认不启用 |
 
 ## 工具
 
 ### 数据集工具
-本包提供了若干工具，用于准备待分析的数据集。既可以通过 `ros2 run rpg_trajectory_evaluation <tool>` 运行，也可以直接在 uv 环境下用 `uv run <tool>` 运行。具体包括：
-* `asl_groundtruth_to_pose`：将 EuRoC 风格格式转换为本工具箱使用的格式。
-* `bag_to_pose`：从 ROS 2 bag 中提取 `PoseStamped`/`PoseWithCovarianceStamped` 并转换为所需格式。该工具需要先 source ROS 2 环境。
-* `transform_trajectory`：用给定的变换对本文格式的位姿文件进行变换，适用于在分析前对手眼标定结果应用到真值/估计上。
 
-### 其他工具
-本包还提供：
-* `recursive_clean_results_dir`：递归删除所有 `saved_results` 目录。
-* `change_eval_cfg_recursive`：递归修改给定结果文件夹内的评估参数。
+下列 `/path/to/...` 和话题名均需替换。参数及输出依据：[数据集工具源码](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/cli/dataset_tools)。
 
-## 定制
-大部分误差计算都是通过 `Trajectory` 类（`ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/trajectory.py`）完成的。
-如果你想定制评估流程，可以直接使用这个类。
-该类的 API 相当简单
-
-```python
-from rpg_trajectory_evaluation import Trajectory
-
-# 使用结果文件夹初始化。
-# 你也可以在初始化时指定子轨迹长度和对齐参数。
-traj = Trajectory(result_dir)
-
-# 计算绝对误差
-traj.compute_absolute_error()
-
-# 计算 `subtraj_lengths` 处的相对误差。
-traj.compute_relative_errors(subtraj_lengths)
-
-# 根据整条轨迹长度计算出的子轨迹长度，计算相对误差。
-traj.compute_relative_errors()
-
-# 将相对误差保存到 `cached_rel_err.pickle`
-traj.cache_current_error()
-
-# 将误差统计写入 yaml 文件
-traj.write_errors_to_yaml()
-
-# 静态方法：从结果文件夹中删除缓存的误差
-Trajectory.remove_cached_error(result_dir)
+```bash
+# 将 EuRoC / ASL 真值 CSV 转为秒级时间戳和 qx qy qz qw 格式
+uv run asl_groundtruth_to_pose \
+  /path/to/data.csv \
+  --output stamped_groundtruth.txt
 ```
 
-误差计算完成后，绝对误差和相对误差会保存在轨迹对象中，之后可以访问：
-* 绝对误差：`traj.abs_errors`。
-这是一个字典，保存所有位姿的绝对误差及其统计信息。
-详见 `Trajectory.compute_absolute_error` 函数。
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| gt（位置参数） | 指定 EuRoC / ASL 真值 CSV | 输入文件 | 必填，无默认值；原时间戳为纳秒，四元数为 qw qx qy qz |
+| --output | 设置转换后的文件名或绝对路径 | 输出文件 | 默认 groundtruth.txt；相对路径基于输入 CSV 所在目录 |
+| -h、--help | 显示帮助并退出 | 行为控制项（非输入输出） | 默认不启用 |
 
-* 相对误差：`traj.rel_errors`。
-这是一个字典，保存不同距离下的相对误差（以距离为键）。
-详见 `Trajectory.compute_relative_error_at_subtraj_len` 函数。
+`bag_to_pose` 需要 ROS 2 Python 依赖，先在当前终端加载 ROS 2 和构建后的工作区环境，见[ROS 2 安装](#ros-2-包替代方式)。
 
-借助这些接口，应该很容易访问所有已计算的误差以进行定制分析。
+```bash
+# 从 ROS 2 bag 的位姿话题提取轨迹
+ros2 run rpg_trajectory_evaluation bag_to_pose \
+  /path/to/bag \
+  /pose_topic \
+  --output stamped_poses.txt
+```
 
-## 致谢与贡献者
-贡献者名单参见 `package.yaml`。
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| bag（位置参数） | 指定 ROS 2 bag | 输入目录 | 必填，无默认值 |
+| topic（位置参数） | 选择位姿话题 | 输入值 | 必填，无默认值；须为 bag 内实际话题 |
+| --msg_type | 指定位姿消息类型 | 输入值 | 默认 auto；支持 auto、PoseStamped、PoseWithCovarianceStamped |
+| --storage_id | 指定 rosbag2 存储插件 | 输入值 | 默认空字符串，由 rosbag2 自动选择；可用值依赖已安装插件 |
+| --output | 设置轨迹输出文件名或绝对路径 | 输出文件 | 默认 stamped_poses.txt；相对路径基于 bag 目录的父目录 |
+| -h、--help | 显示帮助并退出 | 行为控制项（非输入输出） | 默认不启用 |
 
-可能存在一些开源代码被纳入本工具箱，但我们遗漏了其许可/版权信息的情况。
-如果你发现此类问题，请提交 issue。
+```bash
+# 将固定变换右乘到轨迹位姿，可用于应用手眼标定结果
+uv run transform_trajectory \
+  /path/to/trajectory.txt \
+  /path/to/transformation.csv
+```
 
-## 资助声明
-本工具箱的开发得到了瑞士国家科学基金会（SNSF）通过国家机器人研究能力中心（NCCR Robotics）、SNSF-ERC Starting Grant 以及 DARPA FLA 项目的支持。
+输出为输入轨迹同目录的 `transformed_poses.txt`，已有同名文件会被覆盖。输入轨迹须保留首行标题，脚本会跳过该行。
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| trajectory（位置参数） | 指定待变换轨迹 | 输入文件 | 必填，无默认值；空格分隔，含标题和 timestamp tx ty tz qx qy qz qw |
+| transformation（位置参数） | 指定固定变换矩阵 | 输入文件 | 必填，无默认值；4×4 矩阵，每行逗号分隔；计算 T_new = T_old × transformation |
+| -h、--help | 显示帮助并退出 | 行为控制项（非输入输出） | 默认不启用 |
+
+### 其他工具
+
+以下操作会修改或删除结果目录中的文件，执行前确认目标路径。依据：[配置修改工具](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/cli/change_eval_cfg_recursive.py)、[结果清理工具](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/cli/recursive_clean_results_dir.py)。
+
+```bash
+# 递归改写已有 eval_cfg.yaml 的两个对齐参数
+uv run change_eval_cfg_recursive \
+  /path/to/results \
+  sim3 \
+  -1
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| root_dir（位置参数） | 指定递归搜索范围 | 输入目录；目录内配置为输入兼输出 | 必填，无默认值；仅修改已有 eval_cfg.yaml |
+| align_type（位置参数） | 设置对齐类型 | 输入值 | 必填，无默认值；评估支持 sim3、se3、posyaw、none |
+| align_n（位置参数） | 设置对齐位姿数 | 输入值 | 必填，无默认值；-1 表示全部，也可使用足够数量的正整数 |
+| -h、--help | 显示帮助并退出 | 行为控制项（非输入输出） | 默认不启用 |
+
+修改后再次评估时使用 `--recalculate_errors`。
+
+```bash
+# 递归删除目标目录内所有 saved_results 目录及其内容
+uv run recursive_clean_results_dir \
+  /path/to/results
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| root_dir（位置参数） | 指定递归搜索范围 | 输入目录；其内部匹配目录被删除 | 必填，无默认值 |
+| --res_dir | 设置待删除的目录名 | 输入值；行为控制项 | 默认 saved_results；支持自定义目录名，匹配目录及全部内容直接删除，无确认提示 |
+| -h、--help | 显示帮助并退出 | 行为控制项（非输入输出） | 默认不启用 |
+
+## 定制
+
+在已配置依赖的 Python 环境中使用以下代码，将路径替换为已有结果目录。接口与参数依据：[Trajectory 类](ros2_ws/src/rpg_trajectory_evaluation/rpg_trajectory_evaluation/trajectory.py)。
+
+```python
+# 导入轨迹评估接口
+from rpg_trajectory_evaluation import Trajectory
+
+# 加载并对齐指定目录中的轨迹
+traj = Trajectory("/path/to/result_folder")
+# 计算绝对误差
+traj.compute_absolute_error()
+# 按预设长度计算相对误差；也可传入米制长度列表
+traj.compute_relative_errors()
+# 保存相对误差缓存
+traj.cache_current_error()
+# 写入 YAML 统计
+traj.write_errors_to_yaml()
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| results_dir（构造参数） | 设置结果根目录 | 输入兼输出目录 | 必填，无默认值；目录须存在 |
+| platform（构造参数） | 设置平台标签 | 输入值 | 默认空字符串 |
+| alg_name（构造参数） | 设置算法标签 | 输入值 | 默认空字符串 |
+| dataset_name（构造参数） | 设置数据集标签 | 输入值 | 默认空字符串 |
+| align_type（构造参数） | 设置默认对齐方式 | 输入值 | 默认 sim3；被 eval_cfg.yaml 覆盖；支持值见评估参数表 |
+| align_num_frames（构造参数） | 设置默认对齐位姿数 | 输入值 | 默认 -1；被 eval_cfg.yaml 覆盖；支持值见评估参数表 |
+| suffix（构造参数） | 设置结果文件后缀 | 输入值 | 默认空字符串 |
+| est_type（构造参数） | 设置结果分类目录 | 输入值 | 默认 traj_est |
+| nm_gt（构造参数） | 指定真值文件名 | 输入文件 | 默认 stamped_groundtruth.txt；相对路径基于 data_dir |
+| nm_est（构造参数） | 指定估计文件名 | 输入文件 | 默认 stamped_traj_estimate.txt；相对路径基于 data_dir |
+| nm_matches（构造参数） | 指定匹配文件名 | 输入兼输出文件 | 默认 stamped_est_gt_matches.txt；相对路径基于 saved_results/<est_type>/ |
+| preset_boxplot_distances（构造参数） | 设置米制子轨迹长度列表 | 输入值 | 默认 []；非空时优先 |
+| preset_boxplot_percentages（构造参数） | 设置子轨迹长度比例列表 | 输入值 | 默认 []；未指定长度和比例时使用 [0.1, 0.2, 0.3, 0.4, 0.5] |
+| data_dir（构造参数） | 单独指定轨迹与配置目录 | 输入目录 | 默认 None，使用 results_dir |
+| subtraj_lengths（compute_relative_errors 参数） | 设置此次计算的米制长度列表 | 输入值 | 默认 []，使用初始化时的预设长度；例如 [10.0, 20.0] |
+| 无（compute_absolute_error） | 无调用参数 | 输出：traj.abs_errors 字典 | 不适用 |
+| 无（cache_current_error） | 无调用参数 | 输出：saved_results/<est_type>/cached/ 中的缓存 | 不适用 |
+| 无（write_errors_to_yaml） | 无调用参数 | 输出：saved_results/<est_type>/ 中的 YAML | 不适用 |
+
+绝对误差保存在 `traj.abs_errors`；相对误差保存在以子轨迹长度为键的 `traj.rel_errors`。需要主动清理缓存时，在重新构造对象之前调用：
+
+```python
+# 删除指定结果目录中默认估计类型的相对误差缓存
+Trajectory.remove_cached_error("/path/to/result_folder", est_type="traj_est")
+```
+
+| 支持的参数／配置项 | 参数作用 | 输入/输出 | 默认值/支持的值 |
+| --- | --- | --- | --- |
+| data_dir | 指定结果根目录 | 输入目录；内部缓存被删除 | 必填，无默认值 |
+| est_type | 选择估计类型目录 | 输入值 | 默认空字符串；清理默认轨迹结果时显式传 traj_est |
+| suffix | 选择缓存文件后缀 | 输入值 | 默认空字符串 |
