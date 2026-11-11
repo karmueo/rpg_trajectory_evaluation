@@ -12,6 +12,11 @@ from matplotlib import rc
 
 FORMAT = '.pdf'
 
+# Light yellow used for the groundtruth trajectory in all trajectory plots.
+GROUNDTRUTH_COLOR = '#FFEB3B'
+# Trajectory lines are drawn semi-transparent; start/end markers stay opaque.
+TRAJECTORY_LINE_ALPHA = 0.7
+
 
 def configure_matplotlib(use_tex=None):
     """Configure matplotlib for the trajectory evaluation plots.
@@ -72,22 +77,44 @@ def boxplot_compare(ax, xlabels,
         ax.legend(leg_handles, leg_labels)
 
 
+def plot_start_end_markers(ax, xs, ys, color, zs=None):
+    """Mark the start (small filled circle) and end (cross) of a curve.
+
+    The markers are always fully opaque, independent of the line opacity.
+    """
+    if len(xs) == 0:
+        return
+    start_style = dict(linestyle='None', markersize=5, color=color, zorder=5)
+    end_style = dict(linestyle='None', markersize=6, color=color,
+                     markeredgewidth=1.2, zorder=5)
+    if zs is None:
+        ax.plot([xs[0]], [ys[0]], marker='o', **start_style)
+        ax.plot([xs[-1]], [ys[-1]], marker='x', **end_style)
+    else:
+        ax.plot([xs[0]], [ys[0]], [zs[0]], marker='o', **start_style)
+        ax.plot([xs[-1]], [ys[-1]], [zs[-1]], marker='x', **end_style)
+
+
 def plot_trajectory_top(ax, pos, color, name, alpha=1.0):
     ax.grid(ls='--', color='0.7')
     # pos_0 = pos - pos[0, :]
     ax.plot(pos[:, 0], pos[:, 1], color, linestyle='-', alpha=alpha, label=name)
+    plot_start_end_markers(ax, pos[:, 0], pos[:, 1], color)
 
 
 def plot_trajectory_side(ax, pos, color, name, alpha=1.0):
     ax.grid(ls='--', color='0.7')
     # pos_0 = pos - pos[0, :]
     ax.plot(pos[:, 0], pos[:, 2], color, linestyle='-', alpha=alpha, label=name)
+    plot_start_end_markers(ax, pos[:, 0], pos[:, 2], color)
 
 
 def plot_trajectory_3d(ax, pos, color, name, alpha=1.0):
     ax.grid(ls='--', color='0.7')
     ax.plot(pos[:, 0], pos[:, 1], pos[:, 2], color,
             linestyle='-', alpha=alpha, label=name)
+    plot_start_end_markers(ax, pos[:, 0], pos[:, 1], color,
+                           zs=pos[:, 2])
 
 
 def set_3d_axes_equal(ax, positions):

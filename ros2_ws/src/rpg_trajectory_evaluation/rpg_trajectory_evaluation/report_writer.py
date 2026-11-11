@@ -43,23 +43,32 @@ _PLOT_METADATA = [
     ('trajectory_3d_gt', {
         'title': '真值轨迹三维图',
         'coordinate_system': '三维坐标系：横轴 x [m]，纵轴 y [m]，竖轴 z [m]',
-        'curves': '品红色曲线：真值轨迹',
+        'curves': '浅黄色曲线：真值轨迹；实心小圆点：起点；叉号：终点',
+    }),
+    ('trajectory_3d_est', {
+        'title': '对比轨迹三维图',
+        'coordinate_system': '三维坐标系：横轴 x [m]，纵轴 y [m]，竖轴 z [m]',
+        'curves': '蓝色曲线：对齐后的对比轨迹；实心小圆点：起点；'
+                  '叉号：终点',
     }),
     ('trajectory_3d', {
         'title': '真值与对比轨迹三维图',
         'coordinate_system': '三维坐标系：横轴 x [m]，纵轴 y [m]，竖轴 z [m]',
-        'curves': '蓝色曲线：对齐后的对比轨迹；品红色曲线：真值轨迹',
+        'curves': '蓝色曲线：对齐后的对比轨迹；浅黄色曲线：真值轨迹；'
+                  '实心小圆点：起点；叉号：终点',
     }),
     ('trajectory_top', {
         'title': '轨迹俯视图',
         'coordinate_system': 'x-y 平面（横轴 x [m]，纵轴 y [m]）',
-        'curves': '蓝色曲线：对齐后的对比轨迹；品红色曲线：真值轨迹；'
-                  '灰色短线：对齐后的对应点连线',
+        'curves': '蓝色曲线：对齐后的对比轨迹；浅黄色曲线：真值轨迹；'
+                  '灰色短线：对齐后的对应点连线；实心小圆点：起点；'
+                  '叉号：终点',
     }),
     ('trajectory_side', {
         'title': '轨迹侧视图',
         'coordinate_system': 'x-z 平面（横轴 x [m]，纵轴 z [m]）',
-        'curves': '蓝色曲线：对齐后的对比轨迹；品红色曲线：真值轨迹',
+        'curves': '蓝色曲线：对齐后的对比轨迹；浅黄色曲线：真值轨迹；'
+                  '实心小圆点：起点；叉号：终点',
     }),
     ('translation_error', {
         'title': '平移误差随距离变化',

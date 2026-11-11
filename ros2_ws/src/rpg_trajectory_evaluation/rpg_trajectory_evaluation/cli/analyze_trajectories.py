@@ -204,7 +204,7 @@ def plot_trajectories(dataset_trajectories_list, dataset_names, algorithm_names,
                                          xlabel='x [m]', ylabel='y [m]')
                 pu.plot_trajectory_top(ax_i, p_es_0[alg], 'b',
                                        'Estimate ' + plot_settings['algo_labels'][alg], 0.5)
-                pu.plot_trajectory_top(ax_i, p_gt_0[alg], 'm', 'Groundtruth')
+                pu.plot_trajectory_top(ax_i, p_gt_0[alg], pu.GROUNDTRUTH_COLOR, 'Groundtruth')
                 if plot_aligned:
                     pu.plot_aligned_top(ax_i, p_es_0[alg], p_gt_0[alg], -1)
                 plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
@@ -217,7 +217,7 @@ def plot_trajectories(dataset_trajectories_list, dataset_names, algorithm_names,
                                    plot_settings['algo_colors'][alg],
                                    plot_settings['algo_labels'][alg])
         plt.sca(ax)
-        pu.plot_trajectory_top(ax, p_gt_raw, 'm', 'Groundtruth')
+        pu.plot_trajectory_top(ax, p_gt_raw, pu.GROUNDTRUTH_COLOR, 'Groundtruth')
         plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
         fig.tight_layout()
         fig.savefig(output_dir+'/' + dataset_nm +
@@ -239,7 +239,7 @@ def plot_trajectories(dataset_trajectories_list, dataset_names, algorithm_names,
                                          xlabel='x [m]', ylabel='y [m]')
                 pu.plot_trajectory_side(ax_i, p_es_0[alg], 'b',
                                         'Estimate ' + plot_settings['algo_labels'][alg], 0.5)
-                pu.plot_trajectory_side(ax_i, p_gt_0[alg], 'm', 'Groundtruth')
+                pu.plot_trajectory_side(ax_i, p_gt_0[alg], pu.GROUNDTRUTH_COLOR, 'Groundtruth')
                 plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
                 fig_i.tight_layout()
                 fig_i.savefig(output_dir+'/' + dataset_nm + '_trajectory_side_' +
@@ -250,7 +250,7 @@ def plot_trajectories(dataset_trajectories_list, dataset_names, algorithm_names,
                                     plot_settings['algo_colors'][alg],
                                     plot_settings['algo_labels'][alg])
         plt.sca(ax)
-        pu.plot_trajectory_side(ax, p_gt_raw, 'm', 'Groundtruth')
+        pu.plot_trajectory_side(ax, p_gt_raw, pu.GROUNDTRUTH_COLOR, 'Groundtruth')
         plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
         fig.tight_layout()
         fig.savefig(output_dir+'/'+dataset_nm +

@@ -395,8 +395,10 @@ def main(argv=None):
         fig = plt.figure(figsize=(6, 5.5))
         ax = fig.add_subplot(111, aspect='equal',
                              xlabel='x [m]', ylabel='y [m]')
-        pu.plot_trajectory_top(ax, plot_traj.p_es_aligned, 'b', 'Estimate')
-        pu.plot_trajectory_top(ax, plot_traj.p_gt, 'm', 'Groundtruth')
+        pu.plot_trajectory_top(ax, plot_traj.p_es_aligned, 'b', 'Estimate',
+                               pu.TRAJECTORY_LINE_ALPHA)
+        pu.plot_trajectory_top(ax, plot_traj.p_gt, pu.GROUNDTRUTH_COLOR,
+                               'Groundtruth', pu.TRAJECTORY_LINE_ALPHA)
         pu.plot_aligned_top(ax, plot_traj.p_es_aligned, plot_traj.p_gt,
                             plot_traj.align_num_frames)
         plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
@@ -407,8 +409,10 @@ def main(argv=None):
         fig = plt.figure(figsize=(6, 5.5))
         ax = fig.add_subplot(111, aspect='equal',
                              xlabel='x [m]', ylabel='z [m]')
-        pu.plot_trajectory_side(ax, plot_traj.p_es_aligned, 'b', 'Estimate')
-        pu.plot_trajectory_side(ax, plot_traj.p_gt, 'm', 'Groundtruth')
+        pu.plot_trajectory_side(ax, plot_traj.p_es_aligned, 'b', 'Estimate',
+                                pu.TRAJECTORY_LINE_ALPHA)
+        pu.plot_trajectory_side(ax, plot_traj.p_gt, pu.GROUNDTRUTH_COLOR,
+                                'Groundtruth', pu.TRAJECTORY_LINE_ALPHA)
         plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
         fig.tight_layout()
         _save_plot(fig, plot_dir_i+'/trajectory_side' + '_' +
@@ -418,19 +422,32 @@ def main(argv=None):
         fig = plt.figure(figsize=(7, 6))
         ax = fig.add_subplot(111, projection='3d',
                              xlabel='x [m]', ylabel='y [m]', zlabel='z [m]')
-        pu.plot_trajectory_3d(ax, plot_traj.p_gt, 'm', 'Groundtruth')
+        pu.plot_trajectory_3d(ax, plot_traj.p_gt, pu.GROUNDTRUTH_COLOR, 'Groundtruth')
         pu.set_3d_axes_equal(ax, [plot_traj.p_gt])
         ax.legend()
         fig.tight_layout()
         _save_plot(fig, plot_dir_i+'/trajectory_3d_gt' + '_' +
                    plot_traj.align_str + FORMAT)
 
-        # 3D comparison of the aligned estimate and the groundtruth.
+        # 3D aligned estimate trajectory.
         fig = plt.figure(figsize=(7, 6))
         ax = fig.add_subplot(111, projection='3d',
                              xlabel='x [m]', ylabel='y [m]', zlabel='z [m]')
         pu.plot_trajectory_3d(ax, plot_traj.p_es_aligned, 'b', 'Estimate')
-        pu.plot_trajectory_3d(ax, plot_traj.p_gt, 'm', 'Groundtruth')
+        pu.set_3d_axes_equal(ax, [plot_traj.p_es_aligned])
+        ax.legend()
+        fig.tight_layout()
+        _save_plot(fig, plot_dir_i+'/trajectory_3d_est' + '_' +
+                   plot_traj.align_str + FORMAT)
+
+        # 3D comparison of the aligned estimate and the groundtruth.
+        fig = plt.figure(figsize=(7, 6))
+        ax = fig.add_subplot(111, projection='3d',
+                             xlabel='x [m]', ylabel='y [m]', zlabel='z [m]')
+        pu.plot_trajectory_3d(ax, plot_traj.p_es_aligned, 'b', 'Estimate',
+                              pu.TRAJECTORY_LINE_ALPHA)
+        pu.plot_trajectory_3d(ax, plot_traj.p_gt, pu.GROUNDTRUTH_COLOR,
+                              'Groundtruth', pu.TRAJECTORY_LINE_ALPHA)
         pu.set_3d_axes_equal(
             ax, [plot_traj.p_es_aligned, plot_traj.p_gt])
         ax.legend()

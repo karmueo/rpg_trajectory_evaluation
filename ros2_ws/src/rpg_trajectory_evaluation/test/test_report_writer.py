@@ -91,6 +91,28 @@ def test_build_markdown_report_single_trial(tmp_path):
     assert '尺度误差 (%)' not in text
 
 
+def test_plot_figures_are_numbered_in_order(tmp_path):
+    names = [
+        'trajectory_top_se3_-1.png',
+        'trajectory_side_se3_-1.png',
+        'trajectory_3d_gt_se3_-1.png',
+        'trajectory_3d_est_se3_-1.png',
+        'trajectory_3d_se3_-1.png',
+        'translation_error_se3_-1.png',
+    ]
+    entry = _entry()
+    entry['plots'] = [
+        os.path.join(str(tmp_path), 'plots', name) for name in names]
+
+    text = build_markdown_report([entry], report_dir=str(tmp_path))
+
+    assert '#### 图 3：真值轨迹三维图' in text
+    assert '#### 图 4：对比轨迹三维图' in text
+    assert '#### 图 5：真值与对比轨迹三维图' in text
+    assert '#### 图 6：平移误差随距离变化' in text
+    assert '| 曲线 | 蓝色曲线：对齐后的对比轨迹；实心小圆点：起点；叉号：终点 |' in text
+
+
 def test_build_markdown_report_sim3_includes_scale(tmp_path):
     text = build_markdown_report(
         [_entry(align_type='sim3')], report_dir=str(tmp_path))
